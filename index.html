@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сайыс нөмірі</title>
+<style>
+  :root { --bg:#10204a; --ink:#fff; --muted:#a9b6d8; --gold:#ffc83d; --card:#1a2d62; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px;
+         background:var(--bg); color:var(--ink); font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { width:100%; max-width:420px; }
+  h1 { font-size:1.6rem; margin:0 0 6px; }
+  p { color:var(--muted); margin:0 0 22px; line-height:1.5; }
+  input { width:100%; padding:16px; font-size:1.1rem; border-radius:12px; border:2px solid #3a4f8c;
+          background:var(--card); color:var(--ink); }
+  input:focus-visible, button:focus-visible { outline:3px solid var(--gold); outline-offset:2px; }
+  button { width:100%; margin-top:12px; padding:16px; font-size:1.1rem; font-weight:700; border:0;
+           border-radius:12px; background:var(--gold); color:#2a1d00; cursor:pointer; }
+  button:disabled { opacity:.6; }
+  .err { color:#ff9d9d; min-height:1.4em; margin-top:10px; }
+  .ticket { background:var(--gold); color:#2a1d00; border-radius:20px; padding:28px 20px; text-align:center;
+            position:relative; }
+  .ticket::before, .ticket::after { content:""; position:absolute; top:50%; width:28px; height:28px;
+            background:var(--bg); border-radius:50%; transform:translateY(-50%); }
+  .ticket::before { left:-14px; } .ticket::after { right:-14px; }
+  .ticket small { font-size:1rem; }
+  .ticket .num { font-size:7rem; font-weight:800; line-height:1; margin:8px 0; }
+  .ticket .nm { font-size:1.3rem; font-weight:600; word-break:break-word; }
+  .note { margin-top:18px; font-size:.95rem; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <section id="form" hidden>
+    <h1>Сайысқа қатысу</h1>
+    <p>Есіміңізді жазыңыз, нөміріңізді алыңыз. Нөмір тек сізге тиесілі.</p>
+    <input id="name" type="text" placeholder="Аты-жөніңіз" maxlength="60" autocomplete="name">
+    <button id="go">Нөмір алу</button>
+    <div class="err" id="err" role="alert"></div>
+  </section>
+
+  <section id="done" hidden>
+    <div class="ticket">
+      <small>Сіздің нөміріңіз</small>
+      <div class="num" id="num"></div>
+      <div class="nm" id="nm"></div>
+    </div>
+    <p class="note">Бұл бетті сақтап қойыңыз немесе нөмірді жазып алыңыз. Жиын соңында экранда кездейсоқ нөмірлер шығады.</p>
+  </section>
+
+  <section id="closed" hidden>
+    <h1>Тіркеу жабық</h1>
+    <p>Нөмір беру аяқталды. Ұйымдастырушыға хабарласыңыз.</p>
+  </section>
+</main>
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let device = localStorage.getItem("device_id");
+if (!device) { device = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random()); localStorage.setItem("device_id", device); }
+
+function show(which) { for (const s of ["form","done","closed"]) $(s).hidden = s !== which; }
+function showTicket(r) { $("num").textContent = r.number; $("nm").textContent = r.name; show("done"); }
+
+(async () => {
+  try {
+    const r = await rpc("get_my_number", { p_device: device });
+    if (r.number) showTicket(r); else show(r.open ? "form" : "closed");
+  } catch (e) { show("form"); $("err").textContent = "Байланыс жоқ. Интернетті тексеріп, бетті жаңартыңыз."; }
+})();
+
+$("go").onclick = async () => {
+  const name = $("name").value.trim();
+  $("err").textContent = "";
+  if (name.length < 2) { $("err").textContent = "Есіміңізді жазыңыз."; return; }
+  $("go").disabled = true;
+  try {
+    showTicket(await rpc("register_participant", { p_name: name, p_device: device }));
+  } catch (e) {
+    if (String(e.message).includes("closed")) show("closed");
+    else $("err").textContent = "Нөмір алу сәтсіз болды. Қайта басып көріңіз.";
+  }
+  $("go").disabled = false;
+};
+$("name").addEventListener("keydown", e => { if (e.key === "Enter") $("go").click(); });
+</script>
+</body>
+</html>

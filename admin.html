@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="kk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Рандомайзер</title>
+<style>
+  :root { --bg:#10204a; --ink:#fff; --muted:#a9b6d8; --gold:#ffc83d; --card:#1a2d62; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+         font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; display:flex; flex-direction:column; }
+  header { display:flex; gap:16px; align-items:center; justify-content:space-between; padding:14px 24px;
+           color:var(--muted); flex-wrap:wrap; }
+  header button { background:var(--card); color:var(--ink); border:1px solid #3a4f8c; border-radius:10px;
+                  padding:8px 14px; cursor:pointer; font-size:.95rem; }
+  .stage { flex:1; display:grid; place-items:center; text-align:center; padding:10px; }
+  .num { font-size:clamp(9rem, 38vw, 28rem); font-weight:800; line-height:1; color:var(--gold);
+         font-variant-numeric:tabular-nums; }
+  .num.rolling { opacity:.75; }
+  .name { font-size:clamp(2rem, 6vw, 4.5rem); font-weight:700; min-height:1.3em; word-break:break-word; }
+  .hint { color:var(--muted); font-size:1.1rem; }
+  .actions { display:flex; justify-content:center; padding:10px; }
+  #next { font-size:1.6rem; font-weight:800; padding:18px 48px; border:0; border-radius:16px;
+          background:var(--gold); color:#2a1d00; cursor:pointer; }
+  #next:disabled { opacity:.5; cursor:default; }
+  button:focus-visible { outline:3px solid #fff; outline-offset:2px; }
+  .list { display:flex; flex-wrap:wrap; gap:8px; padding:16px 24px 24px; justify-content:center; }
+  .chip { background:var(--card); border-radius:999px; padding:6px 14px; font-size:1rem; }
+  .chip b { color:var(--gold); }
+  #login { position:fixed; inset:0; background:var(--bg); display:grid; place-items:center; padding:20px; }
+  #login form { width:100%; max-width:340px; display:grid; gap:12px; }
+  #login input { padding:14px; font-size:1.1rem; border-radius:10px; border:2px solid #3a4f8c; background:var(--card); color:#fff; }
+  #login button { padding:14px; font-size:1.1rem; font-weight:700; border:0; border-radius:10px; background:var(--gold); color:#2a1d00; }
+  #lerr { color:#ff9d9d; min-height:1.3em; }
+  [hidden] { display:none !important; }
+  @media (prefers-reduced-motion: reduce) { .num.rolling { opacity:1; } }
+</style>
+</head>
+<body>
+<div id="login">
+  <form id="lform">
+    <h1 style="margin:0">Админ кіру</h1>
+    <input id="secret" type="password" placeholder="Құпиясөз" autocomplete="current-password">
+    <button type="submit">Кіру</button>
+    <div id="lerr" role="alert"></div>
+  </form>
+</div>
+
+<header>
+  <div id="stats">Тіркелген: 0 · Шықты: 0</div>
+  <div>
+    <button id="toggle"></button>
+    <button id="reset" title="Тек тестілеуден кейін">Тазалау</button>
+  </div>
+</header>
+
+<div class="stage">
+  <div>
+    <div class="num" id="num">?</div>
+    <div class="name" id="name"></div>
+    <div class="hint" id="hint">Бастау үшін төмендегі батырманы басыңыз (немесе бос орын пернесі)</div>
+  </div>
+</div>
+
+<div class="actions"><button id="next">Келесі нөмір</button></div>
+<div class="list" id="list"></div>
+
+<script src="config.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+let secret = sessionStorage.getItem("admin_secret") || "";
+let state = { total:0, open:true, drawn:[] };
+let busy = false;
+
+function render() {
+  $("stats").textContent = `Тіркелген: ${state.total} · Шықты: ${state.drawn.length} · Қалды: ${state.total - state.drawn.length}`;
+  $("toggle").textContent = state.open ? "Тіркеуді жабу" : "Тіркеуді ашу";
+  $("list").innerHTML = "";
+  state.drawn.forEach(d => {
+    const c = document.createElement("span"); c.className = "chip";
+    c.innerHTML = `<b>${d.number}</b> ${d.name.replace(/[<>&]/g, "")}`;
+    $("list").appendChild(c);
+  });
+  $("next").disabled = busy || state.total - state.drawn.length <= 0;
+}
+
+async function refresh() { state = await rpc("admin_state", { p_secret: secret }); render(); }
+
+async function login(e) {
+  e && e.preventDefault();
+  if (e) secret = $("secret").value;
+  try { await refresh(); sessionStorage.setItem("admin_secret", secret); $("login").hidden = true; }
+  catch (err) { $("login").hidden = false; $("lerr").textContent = e ? "Құпиясөз қате немесе байланыс жоқ." : ""; }
+}
+$("lform").addEventListener("submit", login);
+
+async function next() {
+  if (busy || $("next").disabled) return;
+  busy = true; render();
+  $("name").textContent = ""; $("hint").textContent = "";
+  $("num").classList.add("rolling");
+  const max = Math.max(state.total, 9);
+  const timer = setInterval(() => { $("num").textContent = 1 + Math.floor(Math.random() * max); }, 70);
+  try {
+    // Нәтижені сервер алдын ала таңдайды, анимация тек көрініс үшін
+    const [r] = await Promise.all([rpc("draw_next", { p_secret: secret }), new Promise(ok => setTimeout(ok, 3500))]);
+    clearInterval(timer);
+    $("num").classList.remove("rolling");
+    $("num").textContent = r.number;
+    $("name").textContent = r.name;
+    $("hint").textContent = r.left > 0 ? `Қалды: ${r.left}` : "Барлық нөмірлер шықты";
+  } catch (err) {
+    clearInterval(timer); $("num").classList.remove("rolling"); $("num").textContent = "?";
+    $("hint").textContent = String(err.message).includes("empty") ? "Нөмірлер таусылды" : "Қате шықты, қайта басыңыз";
+  }
+  busy = false;
+  try { await refresh(); } catch (e) { render(); }
+}
+$("next").onclick = next;
+document.addEventListener("keydown", e => { if (e.code === "Space" && !$("login").hidden === false) { e.preventDefault(); next(); } });
+
+$("toggle").onclick = async () => { await rpc("set_registration", { p_secret: secret, p_open: !state.open }); refresh(); };
+$("reset").onclick = async () => {
+  if (!confirm("Барлық қатысушылар мен нәтижелер өшіріледі. Жалғастыру керек пе?")) return;
+  await rpc("reset_all", { p_secret: secret });
+  $("num").textContent = "?"; $("name").textContent = ""; refresh();
+};
+
+if (secret) login();
+setInterval(() => { if (!busy && !$("login").hidden === false) refresh().catch(() => {}); }, 5000);
+</script>
+</body>
+</html>
